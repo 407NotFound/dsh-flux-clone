@@ -26,7 +26,7 @@ jobs:
           $BT/aapt2 link -o build/base.apk -I "$AJ" --manifest $M/AndroidManifest.xml \
               --java build/gen --min-sdk-version 26 --target-sdk-version 34 -R build/res.zip \
               --auto-add-overlay
-          javac -source 17 -target 17 -bootclasspath "$AJ" -d build/classes \
+          javac -source 17 -target 17 -nowarn -cp "$AJ" -d build/classes \
               $(find $M/java build/gen -name '*.java')
           $BT/d8 --lib "$AJ" --min-api 26 --output build $(find build/classes -name '*.class')
           cd build && zip -q base.apk classes.dex && cd ..

@@ -1,9 +1,9 @@
 name: reverse
 on:
+  workflow_dispatch:
   push:
     paths:
       - 'samples/**'
-  workflow_dispatch:
 permissions:
   contents: write
 jobs:
@@ -15,30 +15,55 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq llvm binutils-aarch64-linux-gnu
-      - name: analyze
+      - name: jnionload
         run: |
-          {
-            echo "=== sections ==="
-            llvm-readelf -S samples/libfluxui.so | head -40
-            echo
-            echo "=== dynamic symbols (JNI) ==="
-            llvm-nm -D --defined-only samples/libfluxui.so | grep -iE 'Java_|JNI' || echo none
-            echo
-            echo "=== JNI_OnLoad ==="
-            llvm-nm -D samples/libfluxui.so | grep -i jni_onload || echo none
-            echo
-            echo "=== RegisterNatives refs ==="
-            llvm-objdump -d --no-show-raw-insn samples/libfluxui.so 2>/dev/null | grep -iE 'RegisterNatives|bl.*0x' | head -20
-            echo
-            echo "=== strings: ui-ish (utf8) ==="
-            llvm-strings -a -n 6 samples/libfluxui.so | grep -iE 'flux|skin|key|licen|guest|ms|vpn|tunnel|proxy' | head -60
-            echo
-            echo "=== strings: cyrillic ==="
-            llvm-strings -a -n 4 samples/libfluxui.so | head -40
-          } > REVERSE.md
-          wc -l REVERSE.md
+          llvm-objdump -d --start-address=0x1ed454 --stop-address=0x1ed5a0 samples/libfluxui.so > jni.txt 2>&1 || true
+          wc -l jni.txt
+      - name: scan
+        run: |
+          python3 - <<'PY'
+          import struct, re
+          so=open('samples/libfluxui.so','rb').read()
+          e_shoff=struct.unpack('<Q',so[0x28:0x30])[0]; ent=struct.unpack('<H',so[0x3a:0x3c])[0]
+          num=struct.unpack('<H',so[0x3c:0x3e])[0]; idx=struct.unpack('<H',so[0x3e:0x40])[0]
+          secs=[]
+          for i in range(num):
+              o=e_shoff+i*ent
+              n,t,f,a,off,sz,l,inf,al,es=struct.unpack('<IIQQQQIIQQ',so[o:o+64])
+              secs.append((n,t,a,off,sz))
+          names_off=secs[idx][3]
+          def nm(n):
+              s=so[names_off+n:]; return s[:s.index(b'\0')].decode()
+          table={nm(s[0]):s for s in secs}
+          ro=table['.rodata']; text=table['.text']; drr=table['.data.rel.ro']
+          rod=so[ro[3]:ro[3]+ro[4]]
+          # 单字节 XOR 扫描:目标明文
+          targets=[b'\xd0\x92\xd0\xbe\xd0\xb9\xd1\x82\xd0\xb8', b'Flux Changer', b'flux', b'Guest']
+          print('=== single-byte XOR hits ===')
+          for t in targets:
+              found=0
+              for k in range(1,256):
+                  enc=bytes(c^k for c in t)
+                  if enc in rod:
+                      found+=1
+                      print(f'  {t!r} key=0x{k:02x} at .rodata+0x{rod.index(enc):x}')
+              if not found: print(f'  {t!r}: none')
+          # .data.rel.ro 里指向 .text 的三元组(潜在 RegisterNatives)
+          d=so[drr[3]:drr[3]+drr[4]]
+          base=drr[2]; tlo, tsz = text[2], text[4]
+          cands=[]
+          for i in range(0,len(d)-24,8):
+              a=struct.unpack('<Q', d[i:i+8])[0]
+              b=struct.unpack('<Q', d[i+8:i+16])[0]
+              c=struct.unpack('<Q', d[i+16:i+24])[0]
+              if tlo<=a<tlo+tsz and tlo<=c<tlo+tsz and 0<b<0x250000:
+                  cands.append((base+i,a,b,c))
+          print('=== triple candidates (fnptr, str, fnptr) ===')
+          print('count', len(cands))
+          for x in cands[:15]: print('  ', [hex(v) for v in x])
+          PY
       - name: publish
         run: |
           git config user.name bot; git config user.email bot@b
-          git add REVERSE.md; git commit -m "rev: native analysis" || true
+          git add -A; git commit -m "rev: jni + string scan" || true
           git push

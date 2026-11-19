@@ -28,13 +28,13 @@ public class MainActivity extends Activity {
         root.setBackgroundColor(Color.parseColor("#0B0F14"));
 
         TextView title = new TextView(this);
-        title.setText("FluxClone 1.1");
+        title.setText("FluxClone 1.2");
         title.setTextColor(Color.parseColor("#7DF9FF"));
         title.setTextSize(26);
         root.addView(title);
 
         TextView sub = new TextView(this);
-        sub.setText("自建架构 · 悬浮菜单 · 皮肤管线");
+        sub.setText("自建架构 · 悬浮菜单 · 动画 + 记忆位置");
         sub.setTextColor(Color.parseColor("#8A94A6"));
         sub.setTextSize(13);
         root.addView(sub);

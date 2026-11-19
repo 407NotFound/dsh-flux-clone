@@ -2,6 +2,8 @@ name: android
 on:
   push:
   workflow_dispatch:
+permissions:
+  contents: write
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -11,20 +13,32 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: gradle
+      - name: raw build
         run: |
-          curl -sSL -o g.zip https://services.gradle.org/distributions/gradle-8.7-bin.zip
-          unzip -q g.zip
-          ./gradle-8.7/bin/gradle -v
-      - name: build
-        run: ./gradle-8.7/bin/gradle -p . :app:assembleRelease --no-daemon -q
-      - name: find apk
-        run: |
-          find . -name '*.apk' -exec ls -l {} \;
-          cp $(find . -name 'app-release.apk' | head -1) FluxClone-1.1.apk
+          set -eux
+          SDK=${ANDROID_HOME:-/usr/local/lib/android/sdk}
+          BT=$(ls -d $SDK/build-tools/* | sort -V | tail -1)
+          AJ=$(ls -d $SDK/platforms/android-* | sort -V | tail -1)/android.jar
+          echo "BT=$BT"; echo "AJ=$AJ"
+          M=app/src/main
+          rm -rf build && mkdir -p build/gen build/classes
+          $BT/aapt2 compile --dir $M/res -o build/res.zip
+          $BT/aapt2 link -o build/base.apk -I "$AJ" --manifest $M/AndroidManifest.xml \
+              --java build/gen --min-sdk-version 26 --target-sdk-version 34 -R build/res.zip \
+              --auto-add-overlay
+          javac -source 17 -target 17 -bootclasspath "$AJ" -d build/classes \
+              $(find $M/java build/gen -name '*.java')
+          $BT/d8 --lib "$AJ" --min-api 26 --output build $(find build/classes -name '*.class')
+          cd build && zip -q base.apk classes.dex && cd ..
+          $BT/zipalign -f 4 build/base.apk build/aligned.apk
+          keytool -genkeypair -keystore build/dk.jks -storepass android -keypass android \
+              -alias k -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Flux" 2>/dev/null || true
+          $BT/apksigner sign --ks build/dk.jks --ks-pass pass:android --key-pass pass:android \
+              --out FluxClone-1.1.apk build/aligned.apk
+          ls -l FluxClone-1.1.apk
       - name: publish
         run: |
           git config user.name bot; git config user.email bot@b
           git add FluxClone-1.1.apk
-          git commit -m "build apk" || true
+          git commit -m "build apk v1.1" || true
           git push

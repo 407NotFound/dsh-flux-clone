@@ -6,9 +6,13 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Intent;
+import android.content.SharedPreferences;
+import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Outline;
+import android.graphics.Paint;
 import android.graphics.PixelFormat;
+import android.graphics.RectF;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.os.IBinder;
@@ -17,16 +21,16 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewOutlineProvider;
 import android.view.WindowManager;
-import android.widget.CompoundButton;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
-import android.widget.Switch;
 import android.widget.TextView;
 
 import java.util.List;
 
-/** 悬浮球 + 展开面板:1.1 的美化界面都在这 */
+/** 悬浮球 + 展开面板:v1.2(动画/记忆位置/自绘开关/状态条) */
 public class OverlayService extends Service {
+
+    private static final String PREF = "flux_pos";
 
     private WindowManager wm;
     private WindowManager.LayoutParams ballParams;
@@ -61,7 +65,7 @@ public class OverlayService extends Service {
                 .build();
     }
 
-    private WindowManager.LayoutParams params(int w, int h, boolean touchable) {
+    private WindowManager.LayoutParams params(int w, int h) {
         WindowManager.LayoutParams p = new WindowManager.LayoutParams(
                 w, h,
                 Build.VERSION.SDK_INT >= 26
@@ -71,9 +75,6 @@ public class OverlayService extends Service {
                         | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
                 PixelFormat.TRANSLUCENT);
         p.gravity = Gravity.TOP | Gravity.START;
-        p.x = 32;
-        p.y = 220;
-        if (!touchable) p.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
         return p;
     }
 
@@ -97,7 +98,10 @@ public class OverlayService extends Service {
             }
         });
 
-        ballParams = params(dp(52), dp(52), true);
+        SharedPreferences sp = getSharedPreferences(PREF, 0);
+        ballParams = params(dp(52), dp(52));
+        ballParams.x = sp.getInt("x", dp(20));
+        ballParams.y = sp.getInt("y", dp(220));
         ball = v;
         wm.addView(ball, ballParams);
 
@@ -118,36 +122,53 @@ public class OverlayService extends Service {
         box.setElevation(16f);
 
         TextView head = new TextView(this);
-        head.setText("FLUX  ·  v1.1");
+        head.setText("FLUX  ·  v1.2");
         head.setTextColor(Color.parseColor("#7DF9FF"));
         head.setTextSize(15);
         box.addView(head);
 
-        TextView hint = new TextView(this);
-        hint.setText("皮肤开关");
-        hint.setTextColor(Color.parseColor("#8A94A6"));
-        hint.setTextSize(11);
-        hint.setPadding(0, dp(10), 0, dp(6));
-        box.addView(hint);
+        TextView state = new TextView(this);
+        state.setText(statusLine());
+        state.setTextColor(Color.parseColor("#5F6B7D"));
+        state.setTextSize(10);
+        state.setPadding(0, dp(6), 0, dp(10));
+        box.addView(state);
 
         ScrollView sc = new ScrollView(this);
         LinearLayout list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
-        for (Skin s : skins) list.addView(row(s));
+        for (Skin s : skins) list.addView(row(s, state));
         sc.addView(list);
         sc.setLayoutParams(new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(210)));
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(220)));
         box.addView(sc);
 
-        panelParams = params(dp(250), WindowManager.LayoutParams.WRAP_CONTENT, true);
+        panelParams = params(dp(250), WindowManager.LayoutParams.WRAP_CONTENT);
         panel = box;
     }
 
-    private View row(Skin s) {
+    private String statusLine() {
+        int on = 0;
+        for (Skin s : skins) if (s.enabled) on++;
+        return "tunnel off · skins " + on + "/" + skins.size() + " active";
+    }
+
+    private View row(Skin s, TextView state) {
         LinearLayout r = new LinearLayout(this);
         r.setOrientation(LinearLayout.HORIZONTAL);
         r.setGravity(Gravity.CENTER_VERTICAL);
-        r.setPadding(0, dp(8), 0, dp(8));
+        r.setPadding(0, dp(9), 0, dp(9));
+
+        // 渐变缩略图占位
+        View thumb = new View(this);
+        GradientDrawable td = new GradientDrawable(
+                GradientDrawable.Orientation.TL_BR, colorsFor(s.id));
+        td.setCornerRadius(dp(10));
+        thumb.setBackground(td);
+        LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(dp(38), dp(38));
+        tp.rightMargin = dp(12);
+        thumb.setLayoutParams(tp);
+        r.addView(thumb);
 
         LinearLayout texts = new LinearLayout(this);
         texts.setOrientation(LinearLayout.VERTICAL);
@@ -165,24 +186,46 @@ public class OverlayService extends Service {
                 LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
         r.addView(texts);
 
-        Switch sw = new Switch(this);
-        sw.setChecked(s.enabled);
-        sw.setOnCheckedChangeListener((CompoundButton b, boolean checked) -> {
-            s.enabled = checked;
+        FluxToggle t = new FluxToggle(this, s.enabled);
+        t.setOnChange(v -> {
+            s.enabled = v;
             SkinStore.save(this, skins);
+            state.setText(statusLine());
         });
-        r.addView(sw);
+        r.addView(t);
         return r;
+    }
+
+    private int[] colorsFor(String id) {
+        switch (id) {
+            case "ice": return new int[]{Color.parseColor("#BFE9FF"), Color.parseColor("#3A7BD5")};
+            case "void": return new int[]{Color.parseColor("#2A2E3A"), Color.parseColor("#0B0F14")};
+            case "sunset": return new int[]{Color.parseColor("#FF9A6C"), Color.parseColor("#B33B8E")};
+            default: return new int[]{Color.parseColor("#7DF9FF"), Color.parseColor("#4D8BFF")};
+        }
     }
 
     private void togglePanel() {
         if (panel.getParent() != null) {
-            wm.removeView(panel);
-        } else {
-            panelParams.x = ballParams.x + dp(60);
-            panelParams.y = ballParams.y;
-            wm.addView(panel, panelParams);
+            panel.animate().alpha(0f).scaleX(0.92f).scaleY(0.92f).setDuration(120)
+                    .withEndAction(() -> {
+                        if (panel.getParent() != null) wm.removeView(panel);
+                    }).start();
+            return;
         }
+
+        int screenW = getResources().getDisplayMetrics().widthPixels;
+        int panelW = dp(250);
+        int x = ballParams.x + dp(60);
+        if (x + panelW > screenW - dp(8)) x = Math.max(dp(8), screenW - panelW - dp(8));
+        panelParams.x = x;
+        panelParams.y = ballParams.y;
+
+        panel.setAlpha(0f);
+        panel.setScaleX(0.92f);
+        panel.setScaleY(0.92f);
+        wm.addView(panel, panelParams);
+        panel.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(180).start();
     }
 
     @Override
@@ -206,14 +249,13 @@ public class OverlayService extends Service {
         return Math.round(getResources().getDisplayMetrics().density * v);
     }
 
-    /** 拖动悬浮球 */
     private class DragTouch implements View.OnTouchListener {
         private int startX, startY;
         private float downX, downY;
 
         @Override
         public boolean onTouch(View v, MotionEvent e) {
-            switch (e.getAction()) {
+            switch (e.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN:
                     startX = ballParams.x;
                     startY = ballParams.y;
@@ -224,6 +266,16 @@ public class OverlayService extends Service {
                     ballParams.x = startX + (int) (e.getRawX() - downX);
                     ballParams.y = startY + (int) (e.getRawY() - downY);
                     wm.updateViewLayout(ball, ballParams);
+                    return true;
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL:
+                    int w = getResources().getDisplayMetrics().widthPixels;
+                    int h = getResources().getDisplayMetrics().heightPixels;
+                    ballParams.x = Math.max(0, Math.min(ballParams.x, w - dp(52)));
+                    ballParams.y = Math.max(0, Math.min(ballParams.y, h - dp(52)));
+                    wm.updateViewLayout(ball, ballParams);
+                    getSharedPreferences(PREF, 0).edit()
+                            .putInt("x", ballParams.x).putInt("y", ballParams.y).apply();
                     return true;
                 default:
                     return false;

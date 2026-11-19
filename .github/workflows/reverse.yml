@@ -1,0 +1,44 @@
+name: reverse
+on:
+  push:
+    paths:
+      - 'samples/**'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  rev:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq llvm binutils-aarch64-linux-gnu
+      - name: analyze
+        run: |
+          {
+            echo "=== sections ==="
+            llvm-readelf -S samples/libfluxui.so | head -40
+            echo
+            echo "=== dynamic symbols (JNI) ==="
+            llvm-nm -D --defined-only samples/libfluxui.so | grep -iE 'Java_|JNI' || echo none
+            echo
+            echo "=== JNI_OnLoad ==="
+            llvm-nm -D samples/libfluxui.so | grep -i jni_onload || echo none
+            echo
+            echo "=== RegisterNatives refs ==="
+            llvm-objdump -d --no-show-raw-insn samples/libfluxui.so 2>/dev/null | grep -iE 'RegisterNatives|bl.*0x' | head -20
+            echo
+            echo "=== strings: ui-ish (utf8) ==="
+            llvm-strings -a -n 6 samples/libfluxui.so | grep -iE 'flux|skin|key|licen|guest|ms|vpn|tunnel|proxy' | head -60
+            echo
+            echo "=== strings: cyrillic ==="
+            llvm-strings -a -n 4 samples/libfluxui.so | head -40
+          } > REVERSE.md
+          wc -l REVERSE.md
+      - name: publish
+        run: |
+          git config user.name bot; git config user.email bot@b
+          git add REVERSE.md; git commit -m "rev: native analysis" || true
+          git push

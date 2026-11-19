@@ -4,8 +4,10 @@ import android.animation.ValueAnimator;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.RectF;
+import android.graphics.Shader;
 import android.view.View;
 import android.view.animation.DecelerateInterpolator;
 
@@ -17,7 +19,7 @@ public class FluxToggle extends View {
     }
 
     private boolean on;
-    private float pos;           // 0..1 圆点位置
+    private float pos;
     private OnChange listener;
     private final Paint track = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint knob = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -63,9 +65,7 @@ public class FluxToggle extends View {
 
     @Override
     protected void onMeasure(int w, int h) {
-        int width = dp(42);
-        int height = dp(24);
-        setMeasuredDimension(width, height);
+        setMeasuredDimension(dp(42), dp(24));
     }
 
     @Override
@@ -74,19 +74,16 @@ public class FluxToggle extends View {
         float r = h / 2f;
         rect.set(0, 0, w, h);
 
-        // 轨道:开→青蓝渐变,关→深灰
         if (on) {
-            track.setShader(new android.graphics.LinearGradient(
-                    0, 0, w, h,
+            track.setShader(new LinearGradient(0, 0, w, h,
                     Color.parseColor("#7DF9FF"), Color.parseColor("#4D8BFF"),
-                    android.graphics.Shader.TileMode.CLAMP));
+                    Shader.TileMode.CLAMP));
         } else {
             track.setShader(null);
             track.setColor(Color.parseColor("#313A48"));
         }
         c.drawRoundRect(rect, r, r, track);
 
-        // 圆点
         float kr = r - dp(3);
         float cx = dp(3) + kr + (w - dp(6) - kr * 2) * pos;
         c.drawCircle(cx, h / 2f, kr, knob);

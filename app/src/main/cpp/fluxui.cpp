@@ -8,6 +8,7 @@
 #include <jni.h>
 #include <string>
 #include <cstdio>
+#include <ctime>
 
 #include "imgui.h"
 #include "imgui_impl_opengl3.h"
@@ -26,6 +27,11 @@ bool g_fontLoaded = false;
 int g_tab = 0;
 char g_key[40] = "";
 const char *g_status = "Без ключа";
+bool g_menu_open = false;
+int g_ping = -1;          // ms, -1 = 未测
+double g_hud_x = -1, g_hud_y = -1;
+bool g_dragging = false;
+float g_drag_dx = 0, g_drag_dy = 0;
 
 bool init_egl() {
     if (!g_window) return false;
@@ -84,7 +90,72 @@ void setup_style() {
     s.Colors[ImGuiCol_ButtonActive] = ImVec4(0.45f, 0.07f, 0.10f, 1.0f);
 }
 
+void draw_hud() {
+    ImGuiIO &io = ImGui::GetIO();
+    static ImVec2 pos(0, 0);
+    if (g_hud_x < 0) {
+        g_hud_x = io.DisplaySize.x * 0.5 - 150;
+        g_hud_y = 86;
+    }
+
+    ImGui::SetNextWindowPos(ImVec2((float) g_hud_x, (float) g_hud_y), ImGuiCond_Always);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 18.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(14, 9));
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.09f, 0.10f, 0.12f, 0.96f));
+    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.35f, 0.37f, 0.42f, 0.55f));
+    ImGui::Begin("##hud", nullptr,
+                 ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+                 ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_AlwaysAutoResize |
+                 ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoMove |
+                 ImGuiWindowFlags_NoFocusOnAppearing);
+
+    ImGui::TextColored(ImVec4(0.95f, 0.95f, 0.97f, 1.0f), "flux");
+    ImGui::SameLine();
+    ImGui::TextColored(ImVec4(0.32f, 0.34f, 0.38f, 1.0f), "|");
+    ImGui::SameLine();
+    ImGui::TextColored(ImVec4(0.90f, 0.28f, 0.32f, 1.0f), "o");
+    ImGui::SameLine();
+    ImGui::TextColored(ImVec4(0.85f, 0.87f, 0.90f, 1.0f), "Guest");
+    ImGui::SameLine();
+    ImGui::TextColored(ImVec4(0.32f, 0.34f, 0.38f, 1.0f), "|");
+    ImGui::SameLine();
+    if (g_ping < 0) {
+        ImGui::TextColored(ImVec4(0.55f, 0.58f, 0.64f, 1.0f), "-- ms");
+    } else {
+        ImVec4 c = g_ping < 80 ? ImVec4(0.30f, 0.85f, 0.45f, 1.0f)
+                 : g_ping < 160 ? ImVec4(0.95f, 0.80f, 0.25f, 1.0f)
+                                : ImVec4(0.92f, 0.32f, 0.32f, 1.0f);
+        ImGui::TextColored(c, "%d ms", g_ping);
+    }
+    ImGui::SameLine();
+    ImGui::TextColored(ImVec4(0.32f, 0.34f, 0.38f, 1.0f), "|");
+    ImGui::SameLine();
+    time_t now = time(nullptr);
+    struct tm tm_now;
+    localtime_r(&now, &tm_now);
+    ImGui::TextColored(ImVec4(0.85f, 0.87f, 0.90f, 1.0f), "%02d:%02d:%02d",
+                       tm_now.tm_hour, tm_now.tm_min, tm_now.tm_sec);
+
+    // 拖动 + 点击
+    ImGui::SetCursorPos(ImVec2(0, 0));
+    ImGui::InvisibleButton("##drag", ImGui::GetWindowSize());
+    if (ImGui::IsItemActive() && ImGui::IsMouseDragging(0)) {
+        ImVec2 d = ImGui::GetIO().MouseDelta;
+        g_hud_x += d.x;
+        g_hud_y += d.y;
+    }
+    if (ImGui::IsItemDeactivated() && ImGui::IsMouseReleased(0)) {
+        g_menu_open = !g_menu_open;
+    }
+
+    ImGui::End();
+    ImGui::PopStyleColor(2);
+    ImGui::PopStyleVar(2);
+}
+
 void draw_ui() {
+    draw_hud();
+    if (!g_menu_open) return;
     ImGuiIO &io = ImGui::GetIO();
     ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f),
                             ImGuiCond_Always, ImVec2(0.5f, 0.5f));
@@ -201,6 +272,11 @@ Java_local_flux_NativeBridge_nativeTouch(JNIEnv *, jclass, jint action, jfloat x
     if (down || move) io.AddMousePosEvent(x, y);
     io.AddMouseButtonEvent(0, down || move);
     if (action == 1) io.AddMouseButtonEvent(0, false);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_local_flux_NativeBridge_nativeSetPing(JNIEnv *, jclass, jint ms) {
+    g_ping = ms;
 }
 
 extern "C" JNIEXPORT void JNICALL

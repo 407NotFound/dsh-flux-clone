@@ -28,7 +28,7 @@ public class MainActivity extends Activity {
         root.setBackgroundColor(Color.parseColor("#0B0F14"));
 
         TextView title = new TextView(this);
-        title.setText("FluxClone 1.2");
+        title.setText("Flux HUD 1.4");
         title.setTextColor(Color.parseColor("#7DF9FF"));
         title.setTextSize(26);
         root.addView(title);
@@ -50,6 +50,11 @@ public class MainActivity extends Activity {
         root.addView(button("停止", v -> stopService(new Intent(this, OverlayService.class))));
 
         setContentView(root);
+
+        // 有权限就自动起 HUD
+        if (Build.VERSION.SDK_INT < 23 || Settings.canDrawOverlays(this)) {
+            startForegroundService(new Intent(this, OverlayService.class));
+        }
     }
 
     private Button button(String text, View.OnClickListener l) {

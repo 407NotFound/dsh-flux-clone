@@ -47,11 +47,11 @@ jobs:
           keytool -genkeypair -keystore build/out/dk.jks -storepass android -keypass android \
               -alias k -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Flux" 2>/dev/null || true
           $BT/apksigner sign --ks build/out/dk.jks --ks-pass pass:android --key-pass pass:android \
-              --out FluxClone-1.3.apk build/out/aligned.apk
-          ls -l FluxClone-1.3.apk
+              --out FluxClone-1.4.apk build/out/aligned.apk
+          ls -l FluxClone-1.4.apk
       - name: publish
         run: |
           git config user.name bot; git config user.email bot@b
-          git add FluxClone-1.3.apk
-          git commit -m "build apk 1.3 (imgui)" || true
+          git add FluxClone-1.4.apk
+          git commit -m "build apk 1.4 (hud)" || true
           git push

@@ -17,5 +17,7 @@ public final class NativeBridge {
 
     public static native void nativeTouch(int action, float x, float y);
 
+    public static native void nativeSetPing(int ms);
+
     public static native void nativeStop();
 }

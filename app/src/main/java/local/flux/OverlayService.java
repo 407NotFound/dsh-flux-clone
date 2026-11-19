@@ -90,6 +90,29 @@ public class OverlayService extends Service implements SurfaceHolder.Callback {
         NativeBridge.nativeStop();
     }
 
+    private Thread pingThread;
+
+    private void startPing() {
+        if (pingThread != null) return;
+        pingThread = new Thread(() -> {
+            while (running) {
+                int ms = -1;
+                long t0 = System.currentTimeMillis();
+                try (java.net.Socket s = new java.net.Socket()) {
+                    s.connect(new java.net.InetSocketAddress("1.1.1.1", 53), 1200);
+                    ms = (int) (System.currentTimeMillis() - t0);
+                } catch (Exception ignored) {
+                }
+                NativeBridge.nativeSetPing(ms);
+                try {
+                    Thread.sleep(5000);
+                } catch (InterruptedException ignored) {
+                }
+            }
+        }, "flux-ping");
+        pingThread.start();
+    }
+
     private void startRenderLoop() {
         if (running) return;
         running = true;
@@ -103,6 +126,7 @@ public class OverlayService extends Service implements SurfaceHolder.Callback {
             }
         }, "flux-render");
         renderThread.start();
+        startPing();
     }
 
     private void stopRenderLoop() {
